@@ -1,3 +1,6 @@
+class DRError < RuntimeError
+end
+
 class DRGraph
 
   class DRTask
@@ -158,6 +161,33 @@ class DRGraph
     end
   end
 
+  def shell_escape(s)
+    s.gsub('\\', '\\\\').gsub("'", '\\\'')
+  end
+
+  def cmd(args, name=nil)
+    name ||= "'#{[*args].map{|a|shell_escape(a)} * ' '}'"
+    task(name=name) do |*ins|
+      if ins.size > 1
+        raise DRError.new("`cmd` takes only a single input but comes #{ins}")
+      elsif ins.size == 1
+        instr = ins[0].to_s
+      else
+        instr = ''
+      end
+      pipe = IO.popen(args, 'r+:binary')
+      pipe.print instr
+      pipe.close_write
+      result = pipe.read
+      pipe.close
+      if !$?.success?
+        msg = "cmd #{name} failed (status=#{$?.exitstatus})"
+        raise DRError.new(msg)
+      end
+      result
+    end
+  end
+
   def show
     puts inspect
   end
@@ -178,6 +208,7 @@ end
 def drdr(log=STDERR, &proc)
   DRGraph.new(log=log, &proc).run
 end
+
 
 if $0 == __FILE__
   require 'test/unit'
@@ -242,6 +273,20 @@ if $0 == __FILE__
         task('hoge'){} | task('fuga'){}
       }
       assert_match /hoge.*fuga/m, log
+    end
+
+    def test_cmd
+      assert_equal "fxo\n", drdr {
+        cmd(%W(echo foo)) | cmd(%W(sed s/o/x/))
+      }
+    end
+
+    def test_cmd_fail
+      assert_raise DRError do
+        drdr {
+          cmd("false") | task{ raise ShouldntHappen.new }
+        }
+      end
     end
 
   end
