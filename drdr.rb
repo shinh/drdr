@@ -11,6 +11,7 @@ class DRGraph
       @name = name
       @run = false
       @done = false
+      @debug = false
     end
 
     def |(r)
@@ -31,9 +32,13 @@ class DRGraph
     end
 
     def to_s
-      ins = inputs.map{|i|i.name} * " "
       n = @tid != @name ? "(#{@name})" : ""
-      "Task#{@tid}#{n}: #{ins}"
+      "Task#{@tid}#{n}"
+    end
+
+    def inspect
+      ins = inputs.map{|i|i.name} * " "
+      "#{to_s}: #{ins}"
     end
 
     def can_run
@@ -63,26 +68,31 @@ class DRGraph
       @tasks = tasks
     end
 
-    def to_s
+    def inspect
       ts = tasks.map{|i|i.name} * " "
       "TaskGroup(#{ts})"
     end
   end
 
-  def initialize(&proc)
+  def initialize(log=STDERR, &proc)
     @proc = proc
     @tasks = {}
     @tid = 0
     @thid = 0
     @last_task = nil
+    @log = log
 
     @threads = {}
     @mu = Mutex.new
     @cond = ConditionVariable.new
+
+    instance_eval(&@proc)
   end
 
   def run
-    instance_eval(&@proc)
+    @log << "DR: execute graph with #{@tasks.size} tasks\n"
+    STDERR.puts "DR: About to execute a graph:\n#{inspect}\n\n" if @debug
+
     run_loop
     @threads.each do |_, th|
       th.join
@@ -104,7 +114,8 @@ class DRGraph
   def launch_tasks
     @tasks.each do |_, task|
       if task.can_run
-        STDERR.puts "DR: start #{task}" if @log
+        @log << "DR: start #{task}\n"
+        STDERR.puts "DR: start #{task.inspect}" if @debug
         task.start
         thid = @thid += 1
         th = Thread.start do
@@ -127,7 +138,7 @@ class DRGraph
     end
 
     @mu.synchronize do
-      STDERR.puts "DR: finish (#{result}) #{task}" if @log
+      STDERR.puts "DR: finish (#{result}) #{task.inspect}" if @debug
       task.finish(result)
       @threads.delete(thid)
       @cond.signal
@@ -148,24 +159,24 @@ class DRGraph
   end
 
   def show
-    puts to_s
+    puts inspect
   end
 
-  def to_s
+  def inspect
     @tasks.map do |_, task|
-      task.to_s
+      task.inspect
     end * "\n"
   end
 
-  def log
-    @log = true
+  def debug
+    @debug = true
   end
 
 end
 
 
-def drdr(&proc)
-  DRGraph.new(&proc).run
+def drdr(log=STDERR, &proc)
+  DRGraph.new(log=log, &proc).run
 end
 
 if $0 == __FILE__
@@ -223,6 +234,14 @@ if $0 == __FILE__
           task{ raise TestError.new } | task{ raise ShouldntHappen.new }
         }
       end
+    end
+
+    def test_log
+      log = ''
+      drdr(log=log) {
+        task('hoge'){} | task('fuga'){}
+      }
+      assert_match /hoge.*fuga/m, log
     end
 
   end
