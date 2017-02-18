@@ -6,11 +6,12 @@ end
 class DRGraph
 
   class DRTask
-    attr_accessor :inputs
+    attr_accessor :inputs, :outputs
     attr_reader :name, :run, :done, :result
 
     def initialize(name=nil, tid=0, &proc)
       @inputs = []
+      @outputs = []
       @proc = proc
       @tid = tid
       @name = name
@@ -23,6 +24,7 @@ class DRGraph
       tasks.each do |it|
         r.tasks.each do |ot|
           ot.inputs << it
+          it.outputs << ot
         end
       end
       r
@@ -98,11 +100,36 @@ class DRGraph
     @log << "DR: execute graph with #{@tasks.size} tasks\n"
     STDERR.puts "DR: About to execute a graph:\n#{inspect}\n\n" if @debug
 
+    analyze
+
     run_loop
     @threads.each do |_, th|
       th.join
     end
     @result
+  end
+
+  def traverse(task, seen)
+    raise DRError.new("Cyclic dependency detected") if seen[task]
+    seen[task] = true
+    task.inputs.each do |it|
+      traverse(it, seen)
+    end
+    seen[task] = false
+  end
+
+  def analyze
+    goals = []
+    @tasks.each do |_, task|
+      if task.outputs.empty?
+        goals << task
+      end
+    end
+
+    raise DRError.new("Cyclic dependency detected") if goals.empty?
+    goals.each do |goal|
+      traverse(goal, {})
+    end
   end
 
   def run_loop
@@ -287,6 +314,29 @@ if $0 == __FILE__
       assert_raise DRError do
         drdr {
           cmd("false") | task{ raise ShouldntHappen.new }
+        }
+      end
+    end
+
+    def test_cyclic
+      assert_raise DRError do
+        drdr {
+          a = task{}
+          b = task{}
+          a | b
+          b | a
+        }
+      end
+    end
+
+    def test_cyclic2
+      assert_raise DRError do
+        drdr {
+          a = task{}
+          b = task{}
+          c = task{}
+          a | b | c
+          b | a
         }
       end
     end
