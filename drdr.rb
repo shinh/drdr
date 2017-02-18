@@ -7,14 +7,15 @@ class DRGraph
 
   class DRTask
     attr_accessor :inputs, :outputs
-    attr_reader :name, :run, :done, :result
+    attr_reader :name, :tid, :ckpt, :run, :done, :result
 
-    def initialize(name=nil, tid=0, &proc)
+    def initialize(name=nil, tid=0, ckpt: nil, &proc)
       @inputs = []
       @outputs = []
       @proc = proc
       @tid = tid
       @name = name
+      @ckpt = ckpt
       @run = false
       @done = false
       @debug = false
@@ -52,11 +53,24 @@ class DRGraph
       !@run && @inputs.all?{|i|i.done}
     end
 
+    def can_skip
+      if @ckpt
+        if File.exist?(@ckpt)
+          return true
+        end
+      end
+      false
+    end
+
     def start
       @run = true
     end
 
     def finish(r)
+      if @ckpt
+        File.open(@ckpt, 'a'){}
+      end
+
       @done = true
       @result = r
     end
@@ -109,11 +123,21 @@ class DRGraph
     @result
   end
 
-  def traverse(task, seen)
+  def traverse(task, seen, ntasks)
     raise DRError.new("Cyclic dependency detected") if seen[task]
     seen[task] = true
+
+    if task.can_skip
+      @log << "DR: there is a ckpt #{task.ckpt} for #{task}\n"
+      task.outputs.each do |ot|
+        ot.inputs.delete(task)
+      end
+      return
+    end
+    ntasks[task.tid] = task
+
     task.inputs.each do |it|
-      traverse(it, seen)
+      traverse(it, seen, ntasks)
     end
     seen[task] = false
   end
@@ -126,9 +150,16 @@ class DRGraph
       end
     end
 
+    ntasks = {}
     raise DRError.new("Cyclic dependency detected") if goals.empty?
     goals.each do |goal|
-      traverse(goal, {})
+      traverse(goal, {}, ntasks)
+    end
+
+    if @tasks.size != ntasks.size
+      diff = @tasks.size - ntasks.size
+      @log << "DR: #{diff} tasks were skipped thanks to ckpts\n"
+      @tasks = ntasks
     end
   end
 
@@ -180,11 +211,11 @@ class DRGraph
     end
   end
 
-  def task(name=nil, &proc)
+  def task(name=nil, **kwargs, &proc)
     @mu.synchronize do
       @tid += 1
       name ||= @tid
-      @tasks[@tid] = @last_task = DRTask.new(name, @tid, &proc)
+      @tasks[@tid] = @last_task = DRTask.new(name, @tid, **kwargs, &proc)
       @cond.signal
       @last_task
     end
@@ -194,9 +225,9 @@ class DRGraph
     s.gsub('\\', '\\\\').gsub("'", '\\\'')
   end
 
-  def cmd(args, name=nil)
+  def cmd(args, name=nil, **kwargs)
     name ||= "'#{[*args].map{|a|shell_escape(a)} * ' '}'"
-    task(name) do |*ins|
+    task(name, **kwargs) do |*ins|
       if ins.size > 1
         raise DRError.new("`cmd` takes only a single input but comes #{ins}")
       elsif ins.size == 1
@@ -241,8 +272,18 @@ end
 
 if $0 == __FILE__
   require 'test/unit'
+  require 'fileutils'
+  require 'tmpdir'
 
   class DrdrTest < Test::Unit::TestCase
+
+    def setup
+      @testdir = "#{Dir.tmpdir}/drdr_test"
+      FileUtils.rm_r(@testdir)
+      FileUtils.mkdir_p(@testdir)
+      Dir.chdir(@testdir)
+    end
+
     def test_drdr
       assert_equal (42/2)+(42*2), drdr {
         task{ 42 } | task{|x|x / 2} + task{|x|x * 2} | task{|x, y|x + y}
@@ -339,6 +380,17 @@ if $0 == __FILE__
           b | a
         }
       end
+    end
+
+    def test_ckpt
+      assert_equal "foo\n", drdr {
+        cmd("echo foo", ckpt: "foo") | task{|i|i}
+      }
+      assert_true File.exist?("foo")
+
+      assert_equal "bar", drdr {
+        task(ckpt: "foo"){ raise ShouldntHappen.new } | task{ "bar" }
+      }
     end
 
   end
