@@ -106,14 +106,13 @@ class DRGraph
     @tasks = {}
     @tid = 0
     @thid = 0
-    @last_task = nil
     @log = log
 
     @threads = {}
     @mu = Mutex.new
     @cond = ConditionVariable.new
 
-    instance_eval(&@proc)
+    @results = *instance_eval(&@proc)
   end
 
   def run
@@ -126,7 +125,15 @@ class DRGraph
     @threads.each do |_, th|
       th.join
     end
-    @result
+
+    results = @results.map do |r|
+      if r.is_a? DRTask
+        r.result
+      else
+        r
+      end
+    end
+    results.size == 1 ? results[0] : results
   end
 
   def traverse(task, seen, ntasks)
@@ -208,9 +215,6 @@ class DRGraph
       task.finish(result)
       @threads.delete(thid)
       @cond.signal
-      if task == @last_task
-        @result = result
-      end
     end
   end
 
@@ -218,9 +222,9 @@ class DRGraph
     @mu.synchronize do
       @tid += 1
       name ||= @tid
-      @tasks[@tid] = @last_task = DRTask.new(name, @tid, **kwargs, &proc)
+      task = @tasks[@tid] = DRTask.new(name, @tid, **kwargs, &proc)
       @cond.signal
-      @last_task
+      task
     end
   end
 
@@ -393,6 +397,14 @@ if $0 == __FILE__
 
       assert_equal "foo\nbar", drdr {
         task(ckpt: "foo"){ raise ShouldntHappen.new } | task{|x|x + "bar"}
+      }
+    end
+
+    def test_variable
+      assert_equal ["foo", "bar", 42], drdr {
+        foo = task{"foo"}
+        bar = task{"bar"}
+        [foo, bar, 42]
       }
     end
 
