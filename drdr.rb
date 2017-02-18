@@ -53,9 +53,13 @@ class DRGraph
       !@run && @inputs.all?{|i|i.done}
     end
 
-    def can_skip
+    def maybe_skip
       if @ckpt
         if File.exist?(@ckpt)
+          @done = true
+          File.open(@ckpt) do |f|
+            @result = Marshal.load(f)
+          end
           return true
         end
       end
@@ -68,7 +72,9 @@ class DRGraph
 
     def finish(r)
       if @ckpt
-        File.open(@ckpt, 'a'){}
+        File.open(@ckpt, 'w'){|of|
+          Marshal.dump(r, of)
+        }
       end
 
       @done = true
@@ -127,11 +133,8 @@ class DRGraph
     raise DRError.new("Cyclic dependency detected") if seen[task]
     seen[task] = true
 
-    if task.can_skip
+    if task.maybe_skip
       @log << "DR: there is a ckpt #{task.ckpt} for #{task}\n"
-      task.outputs.each do |ot|
-        ot.inputs.delete(task)
-      end
       return
     end
     ntasks[task.tid] = task
@@ -388,8 +391,8 @@ if $0 == __FILE__
       }
       assert_true File.exist?("foo")
 
-      assert_equal "bar", drdr {
-        task(ckpt: "foo"){ raise ShouldntHappen.new } | task{ "bar" }
+      assert_equal "foo\nbar", drdr {
+        task(ckpt: "foo"){ raise ShouldntHappen.new } | task{|x|x + "bar"}
       }
     end
 
