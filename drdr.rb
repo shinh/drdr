@@ -79,7 +79,7 @@ class DRGraph
     end
   end
 
-  def initialize(log=STDERR, &proc)
+  def initialize(log: STDERR, &proc)
     @proc = proc
     @tasks = {}
     @tid = 0
@@ -169,7 +169,7 @@ class DRGraph
 
   def cmd(args, name=nil)
     name ||= "'#{[*args].map{|a|shell_escape(a)} * ' '}'"
-    task(name=name) do |*ins|
+    task(name) do |*ins|
       if ins.size > 1
         raise DRError.new("`cmd` takes only a single input but comes #{ins}")
       elsif ins.size == 1
@@ -207,8 +207,8 @@ class DRGraph
 end
 
 
-def drdr(log=STDERR, &proc)
-  DRGraph.new(log=log, &proc).run
+def drdr(log: STDERR, &proc)
+  DRGraph.new(log: log, &proc).run
 end
 
 
@@ -271,7 +271,7 @@ if $0 == __FILE__
 
     def test_log
       log = ''
-      drdr(log=log) {
+      drdr(log: log) {
         task('hoge'){} | task('fuga'){}
       }
       assert_match /hoge.*fuga/m, log
