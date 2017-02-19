@@ -3,103 +3,103 @@ require 'thread'
 class DRError < RuntimeError
 end
 
+class DRTask
+  attr_accessor :inputs, :outputs
+  attr_reader :name, :tid, :ckpt, :run, :done, :result
+
+  def initialize(name=nil, tid=0, ckpt: nil, &proc)
+    @inputs = []
+    @outputs = []
+    @proc = proc
+    @tid = tid
+    @name = name
+    @ckpt = ckpt
+    @run = false
+    @done = false
+    @debug = false
+  end
+
+  def |(r)
+    tasks.each do |it|
+      r.tasks.each do |ot|
+        ot.inputs << it
+        it.outputs << ot
+      end
+    end
+    r
+  end
+
+  def +(r)
+    DRTaskGroup.new([*tasks, *r.tasks])
+  end
+
+  def tasks
+    [self]
+  end
+
+  def to_s
+    n = @tid != @name ? "(#{@name})" : ""
+    "Task#{@tid}#{n}"
+  end
+
+  def inspect
+    ins = inputs.map{|i|i.name} * " "
+    "#{to_s}: #{ins}"
+  end
+
+  def can_run
+    !@run && @inputs.all?{|i|i.done}
+  end
+
+  def maybe_skip
+    if @ckpt
+      if File.exist?(@ckpt)
+        @done = true
+        File.open(@ckpt) do |f|
+          @result = Marshal.load(f)
+        end
+        return true
+      end
+    end
+    false
+  end
+
+  def start
+    @run = true
+  end
+
+  def finish(r)
+    if @ckpt
+      File.open(@ckpt, 'w'){|of|
+        Marshal.dump(r, of)
+      }
+    end
+
+    @done = true
+    @result = r
+  end
+
+  def run
+    ins = @inputs.map{|i|i.result}
+    @proc.call(*ins)
+  end
+
+end
+
+class DRTaskGroup < DRTask
+  attr_accessor :tasks
+
+  def initialize(tasks)
+    @tasks = tasks
+  end
+
+  def inspect
+    ts = tasks.map{|i|i.name} * " "
+    "TaskGroup(#{ts})"
+  end
+end
+
 class DRGraph
-
-  class DRTask
-    attr_accessor :inputs, :outputs
-    attr_reader :name, :tid, :ckpt, :run, :done, :result
-
-    def initialize(name=nil, tid=0, ckpt: nil, &proc)
-      @inputs = []
-      @outputs = []
-      @proc = proc
-      @tid = tid
-      @name = name
-      @ckpt = ckpt
-      @run = false
-      @done = false
-      @debug = false
-    end
-
-    def |(r)
-      tasks.each do |it|
-        r.tasks.each do |ot|
-          ot.inputs << it
-          it.outputs << ot
-        end
-      end
-      r
-    end
-
-    def +(r)
-      DRTaskGroup.new([*tasks, *r.tasks])
-    end
-
-    def tasks
-      [self]
-    end
-
-    def to_s
-      n = @tid != @name ? "(#{@name})" : ""
-      "Task#{@tid}#{n}"
-    end
-
-    def inspect
-      ins = inputs.map{|i|i.name} * " "
-      "#{to_s}: #{ins}"
-    end
-
-    def can_run
-      !@run && @inputs.all?{|i|i.done}
-    end
-
-    def maybe_skip
-      if @ckpt
-        if File.exist?(@ckpt)
-          @done = true
-          File.open(@ckpt) do |f|
-            @result = Marshal.load(f)
-          end
-          return true
-        end
-      end
-      false
-    end
-
-    def start
-      @run = true
-    end
-
-    def finish(r)
-      if @ckpt
-        File.open(@ckpt, 'w'){|of|
-          Marshal.dump(r, of)
-        }
-      end
-
-      @done = true
-      @result = r
-    end
-
-    def run
-      ins = @inputs.map{|i|i.result}
-      @proc.call(*ins)
-    end
-
-  end
-
-  class DRTaskGroup < DRTask
-    attr_accessor :tasks
-
-    def initialize(tasks)
-      @tasks = tasks
-    end
-
-    def inspect
-      ts = tasks.map{|i|i.name} * " "
-      "TaskGroup(#{ts})"
-    end
-  end
 
   def initialize(log: STDERR, &proc)
     @proc = proc
