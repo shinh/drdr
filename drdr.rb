@@ -116,6 +116,11 @@ class DRGraph
   end
 
   def run
+    if @tasks.empty?
+      @log << "DR: No task in the graph\n"
+      return
+    end
+
     @log << "DR: execute graph with #{@tasks.size} tasks\n"
     STDERR.puts "DR: About to execute a graph:\n#{inspect}\n\n" if @debug
 
@@ -427,6 +432,10 @@ if $0 == __FILE__
     #     task { task { "foo" } } | task{|x|x + "bar"}
     #   }
     # end
+
+    def test_empty_drdr
+      drdr {}
+    end
 
   end
 end
