@@ -82,7 +82,7 @@ class DRTask
   def run
     ins = @inputs.map{|i|i.result}
     task_proc = @proc
-    drdr {
+    drdr(**Thread::current[:kwargs]) {
       instance_exec(*ins, &task_proc)
     }
   end
@@ -105,6 +105,12 @@ end
 class DRGraph
 
   def initialize(log: STDERR, seq: false, &proc)
+    # Parameters which need to be propagated to the next subgraph.
+    @kwargs = {
+      :log => log,
+      :seq => seq,
+    }
+
     @proc = proc
     @tasks = {}
     @tid = 0
@@ -204,6 +210,7 @@ class DRGraph
         task.start
         thid = @thid += 1
         th = Thread.start do
+          Thread::current[:kwargs] = @kwargs
           run_task(task, thid)
         end
         @threads[thid] = th
@@ -235,7 +242,6 @@ class DRGraph
   end
 
   def task(name=nil, **kwargs, &proc)
-    p self.object_id
     @mu.synchronize do
       @tid += 1
       name ||= @tid
@@ -473,6 +479,21 @@ if $0 == __FILE__
             raise TestError.new
           }
           task{ raise ShouldntHappen.new }
+        }
+      end
+    end
+
+    def test_seq_nested
+      assert_raise TestError do
+        drdr(seq: true) {
+          # One more nest. `seq` must be propagated.
+          task {
+            task{
+              10.times{ Thread.pass }
+              raise TestError.new
+            }
+            task{ raise ShouldntHappen.new }
+          }
         }
       end
     end
