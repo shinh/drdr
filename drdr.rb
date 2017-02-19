@@ -101,12 +101,13 @@ end
 
 class DRGraph
 
-  def initialize(log: STDERR, &proc)
+  def initialize(log: STDERR, seq: false, &proc)
     @proc = proc
     @tasks = {}
     @tid = 0
     @thid = 0
     @log = log
+    @seq = seq
 
     @threads = {}
     @mu = Mutex.new
@@ -200,6 +201,9 @@ class DRGraph
           run_task(task, thid)
         end
         @threads[thid] = th
+        if @seq
+          break
+        end
       end
     end
   end
@@ -277,8 +281,8 @@ class DRGraph
 end
 
 
-def drdr(log: STDERR, &proc)
-  DRGraph.new(log: log, &proc).run
+def drdr(log: STDERR, seq: false, &proc)
+  DRGraph.new(log: log, seq: seq, &proc).run
 end
 
 
@@ -435,6 +439,18 @@ if $0 == __FILE__
 
     def test_empty_drdr
       drdr {}
+    end
+
+    def test_seq
+      assert_raise TestError do
+        drdr(seq: true) {
+          task{
+            10.times{ Thread.pass }
+            raise TestError.new
+          }
+          task{ raise ShouldntHappen.new }
+        }
+      end
     end
 
   end
