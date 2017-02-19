@@ -81,7 +81,10 @@ class DRTask
 
   def run
     ins = @inputs.map{|i|i.result}
-    @proc.call(*ins)
+    task_proc = @proc
+    drdr {
+      instance_exec(*ins, &task_proc)
+    }
   end
 
 end
@@ -124,7 +127,8 @@ class DRGraph
       return @results.size == 1 ? @results[0] : @results
     end
 
-    @log << "DR: execute graph with #{@tasks.size} tasks\n"
+    sub = Thread.current[:is_sub]
+    @log << "DR: execute #{sub}graph with #{@tasks.size} tasks\n"
     STDERR.puts "DR: About to execute a graph:\n#{inspect}\n\n" if @debug
 
     analyze
@@ -211,7 +215,7 @@ class DRGraph
   end
 
   def run_task(task, thid)
-    Thread.current[:is_sub] = true
+    Thread.current[:is_sub] = 'sub'
     begin
       result = task.run
     rescue => e
@@ -231,6 +235,7 @@ class DRGraph
   end
 
   def task(name=nil, **kwargs, &proc)
+    p self.object_id
     @mu.synchronize do
       @tid += 1
       name ||= @tid
@@ -429,16 +434,32 @@ if $0 == __FILE__
       }
     end
 
-    # TODO: This is probably a nice-to-have, but I'm not sure how we
-    # implement this.
-    # def test_nest_task
-    #   assert_equal "foo", drdr {
-    #     task { task { "foo" } }
-    #   }
-    #   assert_equal "foobar", drdr {
-    #     task { task { "foo" } } | task{|x|x + "bar"}
-    #   }
-    # end
+    def test_nest_task
+      assert_equal "foo", drdr {
+        task { task { "foo" } }
+      }
+      assert_equal "foobar", drdr {
+        task { task { "foo" } } | task{|x|x + "bar"}
+      }
+    end
+
+    def test_nest_task_graph_id
+      x = nil
+      y = nil
+      z = nil
+      drdr {
+        x = object_id
+        task {
+          y = object_id
+          task {
+            z = object_id
+          }
+        }
+      }
+      assert_not_equal x, y
+      assert_not_equal x, z
+      assert_not_equal y, z
+    end
 
     def test_empty_drdr
       drdr {}
