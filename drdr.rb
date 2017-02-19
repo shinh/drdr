@@ -401,10 +401,10 @@ if $0 == __FILE__
     end
 
     def test_variable
-      assert_equal ["foo", "bar", 42], drdr {
+      assert_equal ["foo", "barbaz", 42], drdr {
         foo = task{"foo"}
-        bar = task{"bar"}
-        [foo, bar, 42]
+        barbaz = task{"bar"} | task{|x|x+"baz"}
+        [foo, barbaz, 42]
       }
     end
 
