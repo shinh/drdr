@@ -408,5 +408,25 @@ if $0 == __FILE__
       }
     end
 
+    def test_nest_drdr
+      assert_equal "foo", drdr {
+        task { drdr { task { "foo" } } }
+      }
+      assert_equal "foobar", drdr {
+        task { drdr { task { "foo" } } } | task{|x|x + "bar"}
+      }
+    end
+
+    # TODO: This is probably a nice-to-have, but I'm not sure how we
+    # implement this.
+    # def test_nest_task
+    #   assert_equal "foo", drdr {
+    #     task { task { "foo" } }
+    #   }
+    #   assert_equal "foobar", drdr {
+    #     task { task { "foo" } } | task{|x|x + "bar"}
+    #   }
+    # end
+
   end
 end
