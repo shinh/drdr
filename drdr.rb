@@ -118,8 +118,10 @@ class DRGraph
 
   def run
     if @tasks.empty?
-      @log << "DR: No task in the graph\n"
-      return
+      if !Thread.current[:is_sub]
+        @log << "DR: No task in the graph\n"
+      end
+      return @results.size == 1 ? @results[0] : @results
     end
 
     @log << "DR: execute graph with #{@tasks.size} tasks\n"
@@ -209,6 +211,7 @@ class DRGraph
   end
 
   def run_task(task, thid)
+    Thread.current[:is_sub] = true
     begin
       result = task.run
     rescue => e
@@ -451,6 +454,10 @@ if $0 == __FILE__
           task{ raise ShouldntHappen.new }
         }
       end
+    end
+
+    def test_drdr_no_task
+      assert_equal "foo", drdr { "foo" }
     end
 
   end
