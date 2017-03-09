@@ -255,7 +255,7 @@ class DRGraph
     s.gsub('\\', '\\\\').gsub("'", '\\\'')
   end
 
-  def cmd(args, name=nil, **kwargs)
+  def cmd(args, name=nil, stdout: nil, **kwargs)
     name ||= "'#{[*args].map{|a|shell_escape(a)} * ' '}'"
     task(name, **kwargs) do |*ins|
       if ins.size > 1
@@ -265,11 +265,19 @@ class DRGraph
       else
         instr = ''
       end
-      pipe = IO.popen(args, 'r+:binary')
-      pipe.print instr
-      pipe.close_write
-      result = pipe.read
-      pipe.close
+
+      if stdout
+        pipe = IO.popen(args, 'w:binary')
+        pipe.print instr
+        pipe.close
+        result = $?.exitstatus
+      else
+        pipe = IO.popen(args, 'r+:binary')
+        pipe.print instr
+        pipe.close_write
+        result = pipe.read
+        pipe.close
+      end
       if !$?.success?
         msg = "cmd #{name} failed (status=#{$?.exitstatus})"
         raise DRError.new(msg)
